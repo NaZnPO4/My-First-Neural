@@ -1,5 +1,5 @@
-import numpy as np
 import torch
+import time
 eps = 1e-8
 
 # 神经网络类
@@ -19,10 +19,10 @@ class NeuralNet:
         self.dropout_rate = dropout_rate # Dropout率
         
         # Batch_Norm 参数
-        self.BN_gamma1 = torch.ones((1, Layer1), requires_grad=True, dtype=torch.float32)
-        self.BN_beta1 = torch.zeros((1, Layer1), requires_grad=True, dtype=torch.float32)
-        self.BN_gamma2 = torch.ones((1, Layer2), requires_grad=True, dtype=torch.float32)
-        self.BN_beta2 = torch.zeros((1, Layer2), requires_grad=True, dtype=torch.float32)
+        self.BN_gamma1 = torch.normal(1, 0.02, (1, Layer1), requires_grad=True, dtype=torch.float32)
+        self.BN_beta1 = torch.normal(0, 0.02, (1, Layer1), requires_grad=True, dtype=torch.float32)
+        self.BN_gamma2 = torch.normal(1, 0.02, (1, Layer2), requires_grad=True, dtype=torch.float32)
+        self.BN_beta2 = torch.normal(0, 0.02, (1, Layer2), requires_grad=True, dtype=torch.float32)
         
         # Batch_Norm 均值和方差
         self.running_mean1 = torch.zeros((1, Layer1), dtype=torch.float32)
@@ -34,8 +34,9 @@ class NeuralNet:
         # Adam 优化算法
         self.params = [self.w1, self.b1, self.w2, self.b2, self.w3, self.b3, 
                        self.BN_gamma1, self.BN_beta1, self.BN_gamma2, self.BN_beta2]
+        self.lr_decay = 0.85
         self.Adam_beta1 = 0.9
-        self.Adam_beta2 = 0.9
+        self.Adam_beta2 = 0.99
         self.t = 0
         # 初始化 Adam 的一阶矩和二阶矩
         self.G1 = {}  # 一阶矩
@@ -70,7 +71,7 @@ class NeuralNet:
         def FC(x, w, b):
             return torch.matmul(x, w) + b
         def ReLU(x):
-            return torch.where(x > 0, x, 0.1 * x)
+            return torch.where(x > 0, x, 0.01 * x)
         def BN(x, running_mean, running_var, BN_gamma, BN_beta):
             if self.iftraining:
                 mean = torch.mean(x, dim=0, keepdim=True) # 对所有样本的同一维度 进行归一化
@@ -131,7 +132,7 @@ class NeuralNet:
         def Adam():
             """Adam 优化器更新规则"""
             self.t += 1
-            current_lr = self.lr * (0.95 ** epoch)  # 指数衰减
+            current_lr = self.lr * (self.lr_decay ** epoch)  # 指数衰减
             with torch.no_grad():
                 for param in self.params:
                     if param.grad is None:
@@ -169,87 +170,87 @@ class NeuralNet:
             outputs = self.forward(x)
             return torch.argmax(outputs, dim=1)
     
-# def Loader():
-#     from torchvision import datasets, transforms
-    
-#     transform = transforms.Compose([
-#         transforms.ToTensor(),
-#         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
-#         transforms.Lambda(lambda x: x.view(-1))  # 展平图像
-#     ])
-    
-#     trainset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
-#     testset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
-    
-#     train_loader = torch.utils.data.DataLoader(trainset, batch_size=64, shuffle=True)
-#     test_loader = torch.utils.data.DataLoader(testset, batch_size=64, shuffle=False)
-    
-#     return train_loader, test_loader
-
-def Loader(use_augmentation=True):
+def Loader():
     from torchvision import datasets, transforms
     
-    # 定义基础转换：归一化和展平（展平需在数据增强后，避免破坏空间结构）
-    base_transform = [
+    transform = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # CIFAR-10 三通道均值/标准差均设为0.5
-    ]
-    
-    # 训练集数据增强：仅在训练阶段使用，测试阶段禁用
-    if use_augmentation:
-        train_transform = transforms.Compose([
-            # 随机裁剪：先将图像放大到36x36，再随机裁剪回32x32（补充边缘信息）
-            transforms.RandomResizedCrop(size=32, scale=(0.8, 1.0)),
-            # 随机水平翻转：50%概率翻转（符合自然图像对称性，不改变语义）
-            transforms.RandomHorizontalFlip(p=0.5),
-            # 加入微小亮度/对比度扰动（增强鲁棒性，可选）
-            transforms.ColorJitter(brightness=0.1, contrast=0.1),
-            *base_transform,  # 拼接基础转换（转Tensor + 归一化）
-            transforms.Lambda(lambda x: x.view(-1))  # 展平为向量（适配全连接网络输入）
-        ])
-    else:
-        # 无增强的训练集转换（用于对比实验或调试）
-        train_transform = transforms.Compose([
-            transforms.Resize(32),  # 确保尺寸统一
-            *base_transform,
-            transforms.Lambda(lambda x: x.view(-1))
-        ])
-    
-    # 测试集转换：禁用任何随机操作，仅保留确定性处理
-    test_transform = transforms.Compose([
-        transforms.Resize(32),
-        *base_transform,
-        transforms.Lambda(lambda x: x.view(-1))
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5)),
+        transforms.Lambda(lambda x: x.view(-1))  # 展平图像
     ])
     
-    # 加载数据集（训练集用增强转换，测试集用原始转换）
-    trainset = datasets.CIFAR10(
-        root='./data', 
-        train=True, 
-        download=True, 
-        transform=train_transform
-    )
-    testset = datasets.CIFAR10(
-        root='./data', 
-        train=False, 
-        download=True, 
-        transform=test_transform
-    )
+    trainset = datasets.CIFAR10(root='./data', train=True, download=True, transform=transform)
+    testset = datasets.CIFAR10(root='./data', train=False, download=True, transform=transform)
     
-    # 构建数据加载器
-    train_loader = torch.utils.data.DataLoader(
-        trainset, 
-        batch_size=100, 
-        shuffle=True,  # 训练集打乱顺序
-        drop_last=True  # 丢弃最后一个不足批次的数据（避免批次大小不一致影响BN）
-    )
-    test_loader = torch.utils.data.DataLoader(
-        testset, 
-        batch_size=100, 
-        shuffle=False  # 测试集无需打乱
-    )
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=128, shuffle=True)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=128, shuffle=False)
     
     return train_loader, test_loader
+
+# def Loader(use_augmentation=True):
+#     from torchvision import datasets, transforms
+    
+#     # 定义基础转换：归一化和展平（展平需在数据增强后，避免破坏空间结构）
+#     base_transform = [
+#         transforms.ToTensor(),
+#         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))  # CIFAR-10 三通道均值/标准差均设为0.5
+#     ]
+    
+#     # 训练集数据增强：仅在训练阶段使用，测试阶段禁用
+#     if use_augmentation:
+#         train_transform = transforms.Compose([
+#             # 随机裁剪：先将图像放大到36x36，再随机裁剪回32x32（补充边缘信息）
+#             transforms.RandomResizedCrop(size=32, scale=(0.8, 1.0)),
+#             # 随机水平翻转：50%概率翻转（符合自然图像对称性，不改变语义）
+#             transforms.RandomHorizontalFlip(p=0.5),
+#             # 加入微小亮度/对比度扰动（增强鲁棒性，可选）
+#             transforms.ColorJitter(brightness=0.1, contrast=0.1),
+#             *base_transform,  # 拼接基础转换（转Tensor + 归一化）
+#             transforms.Lambda(lambda x: x.view(-1))  # 展平为向量（适配全连接网络输入）
+#         ])
+#     else:
+#         # 无增强的训练集转换（用于对比实验或调试）
+#         train_transform = transforms.Compose([
+#             transforms.Resize(32),  # 确保尺寸统一
+#             *base_transform,
+#             transforms.Lambda(lambda x: x.view(-1))
+#         ])
+    
+#     # 测试集转换：禁用任何随机操作，仅保留确定性处理
+#     test_transform = transforms.Compose([
+#         transforms.Resize(32),
+#         *base_transform,
+#         transforms.Lambda(lambda x: x.view(-1))
+#     ])
+    
+#     # 加载数据集（训练集用增强转换，测试集用原始转换）
+#     trainset = datasets.CIFAR10(
+#         root='./data', 
+#         train=True, 
+#         download=True, 
+#         transform=train_transform
+#     )
+#     testset = datasets.CIFAR10(
+#         root='./data', 
+#         train=False, 
+#         download=True, 
+#         transform=test_transform
+#     )
+    
+#     # 构建数据加载器
+#     train_loader = torch.utils.data.DataLoader(
+#         trainset, 
+#         batch_size=100, 
+#         shuffle=True,  # 训练集打乱顺序
+#         drop_last=True  # 丢弃最后一个不足批次的数据（避免批次大小不一致影响BN）
+#     )
+#     test_loader = torch.utils.data.DataLoader(
+#         testset, 
+#         batch_size=100, 
+#         shuffle=False  # 测试集无需打乱
+#     )
+    
+#     return train_loader, test_loader
 
 # 训练函数
 def train_model(model:NeuralNet, train_loader, epochs=10):
@@ -259,12 +260,16 @@ def train_model(model:NeuralNet, train_loader, epochs=10):
         return torch.eye(num_classes, device=device)[labels.to(device)]
     
     model.TrainMode(True)
+    total_start_time = time.time()
     for epoch in range(epochs):
         total_loss = 0
         total_acc = 0
         batch_count = 0
         
+        epoch_start_time = time.time()
         for batch_idx, (data, labels) in enumerate(train_loader):
+            batch_start_time = time.time()
+
             # 转换标签为one-hot编码
             y_true = one_hot(labels)
             
@@ -280,7 +285,12 @@ def train_model(model:NeuralNet, train_loader, epochs=10):
         
         avg_loss = total_loss / batch_count
         avg_acc = total_acc / batch_count
-        print(f'Epoch {epoch+1}/{epochs} completed - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}')
+        epoch_time = time.time() - epoch_start_time
+
+        print(f'Epoch {epoch+1}/{epochs} completed - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}, Time: {epoch_time:.2f}s')
+    
+    total_time = time.time() - total_start_time
+    print(f'Total training time: {total_time:.2f}s')
 
 # 测试函数
 def test_model(model:NeuralNet, test_loader):
@@ -307,7 +317,7 @@ if __name__ == "__main__":
     train_loader, test_loader = Loader()
     
     # 创建模型
-    model = NeuralNet(Layer0=3*32*32, Layer1=512, Layer2=256, Layer3=10, lr=0.005, alpha=0, dropout_rate=0.2)
+    model = NeuralNet(Layer0=3*32*32, Layer1=512, Layer2=256, Layer3=10, lr=0.005, alpha=2e-5, dropout_rate=0.2)
     
     # 训练模型
     print("Starting training...")
