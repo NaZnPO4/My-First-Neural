@@ -268,7 +268,6 @@ def train_model(model:NeuralNet, train_loader, epochs=10):
         
         epoch_start_time = time.time()
         for batch_idx, (data, labels) in enumerate(train_loader):
-            batch_start_time = time.time()
 
             # 转换标签为one-hot编码
             y_true = one_hot(labels)
@@ -288,6 +287,14 @@ def train_model(model:NeuralNet, train_loader, epochs=10):
         epoch_time = time.time() - epoch_start_time
 
         print(f'Epoch {epoch+1}/{epochs} completed - Avg Loss: {avg_loss:.4f}, Avg Acc: {avg_acc:.4f}, Time: {epoch_time:.2f}s')
+        estimated_remaining_time = epoch_time * (epochs - (epoch + 1))
+        print(f'Estimated remaining time: {estimated_remaining_time:.2f}s')
+
+        if (epoch + 1) % 3 == 0:
+            model.TrainMode(False)
+            test_acc = test_model(model, test_loader)  # 调用测试函数
+            print(f'========== Epoch {epoch+1} 测试完成 - 测试准确率: {test_acc:.4f} ==========\n')
+            model.TrainMode(True)  # 测试后切回训练模式，避免影响后续训练
     
     total_time = time.time() - total_start_time
     print(f'Total training time: {total_time:.2f}s')
@@ -317,8 +324,9 @@ if __name__ == "__main__":
     train_loader, test_loader = Loader()
     
     # 创建模型
-    model = NeuralNet(Layer0=3*32*32, Layer1=512, Layer2=256, Layer3=10, lr=0.005, alpha=2e-5, dropout_rate=0.2)
-    
+    model = NeuralNet(Layer0=3*32*32, Layer1=512, Layer2=256, Layer3=10, lr=0.005, alpha=1e-3, dropout_rate=0.2) # model = NeuralNet(Layer0=3*32*32, Layer1=512, Layer2=256, Layer3=10, lr=0.005, alpha=2e-5, dropout_rate=0.2)
+    # Layer是该层神经元数量 lr学习率 alpha正则化参数 dropout_rate是dropout参数
+
     # 训练模型
     print("Starting training...")
     train_model(model, train_loader, epochs=10)
